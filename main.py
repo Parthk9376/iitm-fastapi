@@ -8,46 +8,62 @@ app = FastAPI()
 
 EMAIL = "24f2001122@ds.study.iitm.ac.in"
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://app-ux779l.example.com",
-        "https://exam.sanand.workers.dev",
+        "https://exam.sanand.workers.dev"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# -----------------------------
+# Rate Limiter
+# -----------------------------
+
 RATE_LIMIT = 10
-WINDOW = 10
+WINDOW = 10  # seconds
 
 clients = {}
 
+
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
-    client = request.headers.get("X-Client-Id", "anonymous")
+    client_id = request.headers.get("X-Client-Id", "anonymous")
     now = time.time()
 
-    if client not in clients:
-        clients[client] = []
+    if client_id not in clients:
+        clients[client_id] = []
 
-    clients[client] = [t for t in clients[client] if now - t < WINDOW]
+    # Remove old timestamps
+    clients[client_id] = [
+        t for t in clients[client_id]
+        if now - t < WINDOW
+    ]
 
-    if len(clients[client]) >= RATE_LIMIT:
+    # Check limit
+    if len(clients[client_id]) >= RATE_LIMIT:
         return JSONResponse(
             status_code=429,
-            content={"detail": "Rate limit exceeded"},
+            content={"detail": "Rate limit exceeded"}
         )
 
-    clients[client].append(now)
+    clients[client_id].append(now)
 
     response = await call_next(request)
     return response
 
 
+# -----------------------------
+# Request Context Middleware
+# -----------------------------
+
 @app.middleware("http")
 async def request_context(request: Request, call_next):
+
     request_id = request.headers.get("X-Request-ID")
 
     if not request_id:
@@ -57,19 +73,31 @@ async def request_context(request: Request, call_next):
 
     response = await call_next(request)
 
+    # Echo X-Request-ID in response header
     response.headers["X-Request-ID"] = request_id
 
     return response
 
 
-@app.get("/")
-def home():
-    return {"status": "running"}
+# -----------------------------
+# Home
+# -----------------------------
 
+@app.get("/")
+async def home():
+    return {
+        "status": "running"
+    }
+
+
+# -----------------------------
+# Ping Endpoint
+# -----------------------------
 
 @app.get("/ping")
-def ping(request: Request):
+async def ping(request: Request):
+
     return {
         "email": EMAIL,
-        "request_id": request.state.request_id,
+        "request_id": request.state.request_id
     }
